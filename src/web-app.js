@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
-export const WEB_APP_VERSION = "2026.09.11.2";
+export const WEB_APP_VERSION = "2026.09.11.3";
 
 const HTML = `<!doctype html>
 <html lang="ru">
@@ -40,9 +40,20 @@ const HTML = `<!doctype html>
   </main>
   <div id="toast"></div>
   <script>
-    const tg = window.Telegram?.WebApp;
-    tg?.ready(); tg?.expand();
-    const initData = tg?.initData || "";
+     const tg = window.Telegram?.WebApp;
+     tg?.ready(); tg?.expand();
+     function readTelegramInitData() {
+       if (tg?.initData) return { value: tg.initData, source: "Telegram.WebApp.initData" };
+       for (const raw of [window.location.hash.slice(1), window.location.search.slice(1)]) {
+         if (!raw) continue;
+         const params = new URLSearchParams(raw);
+         const value = params.get("tgWebAppData") || params.get("initData");
+         if (value) return { value, source: "URL tgWebAppData" };
+       }
+       return { value: "", source: "не найден" };
+     }
+     const telegramInitData = readTelegramInitData();
+     const initData = telegramInitData.value;
     const $ = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[char]));
     const axisLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -85,10 +96,10 @@ const HTML = `<!doctype html>
            const reason = response.status === 401
              ? (initData ? "Telegram initData передан, но подпись отклонена сервером." : "Telegram initData не передан. Открой через кнопку бота.")
              : (data.error || "API error");
-           showDiagnostics("Диагностика: HTTP " + response.status + " · " + reason);
+           showDiagnostics("Диагностика: HTTP " + response.status + " · initData: " + telegramInitData.source + " · " + reason);
            throw new Error(data.error || "API error");
          }
-         showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена"));
+         showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена") + " · initData: " + telegramInitData.source);
          render(data);
        } catch (error) { $("server").textContent = "Ошибка подключения: " + error.message; }
     }
