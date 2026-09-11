@@ -103,8 +103,9 @@ WEB_APP_URL=https://your-domain.example/mini-app
 
 Railway сам передаёт приложению `PORT`, поэтому `WEB_APP_PORT` настраивать не нужно.
 Проверка работоспособности доступна по `https://ТВОЙ-ДОМЕН.up.railway.app/health`.
-`railway.json` использует `npm ci --omit=dev`, запускает `npm start` и перезапускает
-процесс при падении.
+`railway.json` оставляет установку зависимостей стандартному Nixpacks, запускает
+`npm start` и перезапускает процесс при падении. Это важно: повторный `npm ci`
+в отдельной build-фазе Railway может закончиться ошибкой `EBUSY` на `node_modules/.cache`.
 
 Для локальной проверки без Rust+ можно временно поставить `SIMULATION_MODE=true`.
 В боевом режиме оставь `SIMULATION_MODE=false`.
