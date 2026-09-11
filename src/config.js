@@ -20,7 +20,10 @@ export function loadConfig(env = process.env) {
     pollIntervalMs: Math.max(1000, Number(env.POLL_INTERVAL_MS || 3000)),
     mapPollIntervalMs: Math.max(250, Number(env.MAP_POLL_INTERVAL_MS || 1000)),
     mapImagePollIntervalMs: Math.max(30000, Number(env.MAP_IMAGE_POLL_INTERVAL_MS || 300000)),
-    webAppPort: Math.max(1, Number(env.WEB_APP_PORT || env.PORT || 8787)),
+    // Railway injects PORT at runtime. Prefer it even if WEB_APP_PORT was
+    // copied from the local .env.example, otherwise the healthcheck may hit
+    // one port while the server listens on another.
+    webAppPort: Math.max(1, Number(env.PORT || env.WEB_APP_PORT || 8787)),
     webAppUrl: env.WEB_APP_URL?.trim() || (replitDomain ? `https://${replitDomain}/mini-app` : ""),
     timezone: env.TIMEZONE || "Europe/Moscow",
     simulationMode: String(env.SIMULATION_MODE).toLowerCase() === "true",
