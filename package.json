@@ -1,0 +1,21 @@
+{
+  "name": "rust-telegram-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram bot and Rust+ monitor for team chat, alarms, team presence and world events.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@grolm/rustplus.js-typed": "^3.1.1",
+    "@liamcottle/push-receiver": "^0.0.4",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.44.0"
+  }
+}

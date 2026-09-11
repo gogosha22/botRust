@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: rust-telegram-monitor
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: ./data
+      - key: TIMEZONE
+        value: Europe/Moscow
+      - key: POLL_INTERVAL_MS
+        value: "3000"
+      - key: MAP_POLL_INTERVAL_MS
+        value: "1000"
+      - key: RUST_LOOT_MULTIPLIER
+        value: "2"
+      - key: RUST_RESPAWN_MULTIPLIER
+        value: "2"
+      - key: RUST_DECAY_MULTIPLIER
+        value: "1"
+      - key: RAID_ALERT_INTERVAL_MS
+        value: "30000"
