@@ -145,6 +145,45 @@ export function normalizeServerInfo(payload) {
   };
 }
 
+function bytesToDataUrl(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    if (value.startsWith("data:image/")) return value;
+    return `data:image/jpeg;base64,${value}`;
+  }
+  if (Buffer.isBuffer(value)) return `data:image/jpeg;base64,${value.toString("base64")}`;
+  if (value instanceof Uint8Array) {
+    return `data:image/jpeg;base64,${Buffer.from(value).toString("base64")}`;
+  }
+  if (value?.type === "Buffer" && Array.isArray(value.data)) {
+    return `data:image/jpeg;base64,${Buffer.from(value.data).toString("base64")}`;
+  }
+  if (Array.isArray(value) && value.every((item) => Number.isInteger(item))) {
+    return `data:image/jpeg;base64,${Buffer.from(value).toString("base64")}`;
+  }
+  return null;
+}
+
+export function normalizeMap(payload) {
+  const response = payload?.response || payload;
+  const map = response?.map || response?.mapData || response;
+  if (!map || typeof map !== "object") return {};
+  const monuments = Array.isArray(map.monuments)
+    ? map.monuments.map((monument) => ({
+      token: monument.token || monument.name || "РТ",
+      x: Number(monument.x),
+      y: Number(monument.y)
+    })).filter((monument) => Number.isFinite(monument.x) && Number.isFinite(monument.y))
+    : [];
+  return {
+    width: map.width,
+    height: map.height,
+    oceanMargin: map.oceanMargin,
+    image: bytesToDataUrl(map.jpgImage || map.image || map.background),
+    monuments
+  };
+}
+
 export function markerKey(marker) {
   return String(
     marker.id ??
@@ -160,8 +199,10 @@ export class RustMonitor extends EventEmitter {
     this.client = null;
     this.timer = null;
     this.mapTimer = null;
+    this.mapImageTimer = null;
     this.polling = false;
     this.mapPolling = false;
+    this.mapImagePolling = false;
     this.connected = false;
   }
 
@@ -169,6 +210,9 @@ export class RustMonitor extends EventEmitter {
     if (this.config.simulationMode) {
       this.connected = true;
       this.emit("connected");
+      this.poll();
+      this.pollMap();
+      this.pollMapImage();
       return;
     }
     const RustPlusModule = await import("@grolm/rustplus.js-typed");
@@ -190,6 +234,7 @@ export class RustMonitor extends EventEmitter {
       this.emit("connected");
       this.poll();
       this.pollMap();
+      this.pollMapImage();
     });
     this.client.on("disconnected", () => {
       this.connected = false;
@@ -203,8 +248,10 @@ export class RustMonitor extends EventEmitter {
   disconnect() {
     if (this.timer) clearTimeout(this.timer);
     if (this.mapTimer) clearTimeout(this.mapTimer);
+    if (this.mapImageTimer) clearTimeout(this.mapImageTimer);
     this.timer = null;
     this.mapTimer = null;
+    this.mapImageTimer = null;
     if (this.client?.disconnect) this.client.disconnect();
     this.connected = false;
   }
@@ -255,6 +302,7 @@ export class RustMonitor extends EventEmitter {
     if (method === "getTeamChat") return { response: { teamChat: { messages: [] } } };
     if (method === "getMapMarkers") return { response: { mapMarkers: { markers: [] } } };
     if (method === "getInfo") return { response: { info: { name: "Simulation Rust server", map: "Procedural Map" } } };
+    if (method === "getMap") return { response: { map: { width: 1024, height: 1024, monuments: [] } } };
     return {};
   }
 
@@ -291,6 +339,22 @@ export class RustMonitor extends EventEmitter {
       this.mapPolling = false;
       if (this.connected) {
         this.mapTimer = setTimeout(() => this.pollMap(), this.config.mapPollIntervalMs);
+      }
+    }
+  }
+
+  async pollMapImage() {
+    if (!this.connected || this.mapImagePolling) return;
+    this.mapImagePolling = true;
+    try {
+      const payload = await this.request("getMap");
+      this.emit("map", normalizeMap(payload), payload);
+    } catch (error) {
+      this.emit("pollError", { method: "getMap", error });
+    } finally {
+      this.mapImagePolling = false;
+      if (this.connected) {
+        this.mapImageTimer = setTimeout(() => this.pollMapImage(), this.config.mapImagePollIntervalMs);
       }
     }
   }

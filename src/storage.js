@@ -27,6 +27,12 @@ const profileDefaults = {
   markerKeys: [],
   markerBootstrapped: false,
   serverInfo: {},
+  liveMap: {
+    width: null,
+    height: null,
+    image: null,
+    monuments: []
+  },
   liveTeam: [],
   liveMarkers: [],
   liveUpdatedAt: null,

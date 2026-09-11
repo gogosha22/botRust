@@ -614,6 +614,19 @@ manager.on("info", ({ userId, args }) => {
   }
 });
 
+manager.on("map", ({ userId, profile, args }) => {
+  const map = args[0] || {};
+  if (!map || typeof map !== "object") return;
+  const previous = profile.get("liveMap") || {};
+  const next = {
+    ...previous,
+    ...map,
+    image: map.image || previous.image || null,
+    monuments: Array.isArray(map.monuments) ? map.monuments : (previous.monuments || [])
+  };
+  profile.set("liveMap", next);
+});
+
 manager.on("chat", async ({ userId, profile, args }) => {
   const messages = args[0] || [];
   for (const message of messages) {

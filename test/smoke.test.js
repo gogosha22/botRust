@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { findMonument, formatMonument, RT_CATALOG, markerSquare } from "../src/rt-catalog.js";
-import { markerKey, normalizeChat, normalizeMarkers, normalizeServerInfo, normalizeTime, normalizeTeam } from "../src/rust-client.js";
+import { markerKey, normalizeChat, normalizeMap, normalizeMarkers, normalizeServerInfo, normalizeTime, normalizeTeam } from "../src/rust-client.js";
 import { findPairing, parseCredentialInfo } from "../src/credentials.js";
 import { decayEstimate, findDecayMaterial, formatDuration, parseDecayCommand } from "../src/decay.js";
 import { createWebAppServer, validateInitData, WEB_APP_VERSION } from "../src/web-app.js";
@@ -35,13 +35,15 @@ test("Rust+ payload normalizers accept nested responses", () => {
     seed: undefined,
     wipeTime: undefined
   });
+  assert.equal(normalizeMap({ response: { map: { width: 10, height: 10, jpgImage: Buffer.from([1, 2, 3]), monuments: [{ token: "airfield", x: 0.2, y: 0.7 }] } } }).monuments[0].token, "airfield");
 });
 
 test("marker keys are stable", () => {
   assert.equal(markerKey({ id: 42 }), "42");
   assert.equal(markerKey({ type: 1, name: "cargo", x: 0.1, y: 0.2 }), markerKey({ type: 1, name: "cargo", x: 0.1, y: 0.2 }));
   assert.match(markerSquare({ x: 0, y: 0 }), /^[A-Z]\d+$/);
-  assert.match(markerSquare({ x: 0, z: 0 }, 4500), /^[A-Z]\d+$/);
+  assert.equal(markerSquare({ x: 0, z: 0 }, 4500), "A1");
+  assert.equal(markerSquare({ x: 2250, z: 2250 }, 4500), "N14");
 });
 
 test("decay commands calculate remaining wall time", () => {
@@ -94,7 +96,7 @@ test("Telegram Mini App initData uses the Telegram Web Apps HMAC order", () => {
 });
 
 test("Mini App exposes a visible release version", () => {
-  assert.equal(WEB_APP_VERSION, "2026.09.11.5");
+  assert.equal(WEB_APP_VERSION, "2026.09.11.6");
 });
 
 test("Mini App can be linked through a one-time bot code", async () => {
@@ -116,7 +118,7 @@ test("Mini App can be linked through a one-time bot code", async () => {
   const start = await fetch(`${base}/api/link/start`);
   assert.equal(start.status, 200);
   const link = await start.json();
-  assert.match(link.code, /^[A-F0-9]{10}$/);
+  assert.match(link.code, /^\d{4}$/);
   assert.equal((await (await fetch(`${base}/api/link/status?code=${link.code}&deviceToken=${encodeURIComponent(link.deviceToken)}`)).json()).status, "waiting");
 
   assert.equal(server.linkMiniAppCode(link.code, 424242), true);

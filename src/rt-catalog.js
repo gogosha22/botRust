@@ -131,15 +131,18 @@ export function markerSquare(marker, mapSize = null) {
   const x = Number(position.x ?? position.worldX);
   const y = Number(position.z ?? position.worldZ ?? position.y ?? position.worldY);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const size = Number(mapSize);
+  if (Number.isFinite(size) && size > 100) {
+    const worldCoordinates = x >= 0 && x <= size && y >= 0 && y <= size;
+    const normalizedX = worldCoordinates ? x / size : (x + size / 2) / size;
+    const normalizedY = worldCoordinates ? y / size : (y + size / 2) / size;
+    const column = String.fromCharCode(65 + Math.max(0, Math.min(25, Math.floor(normalizedX * 26))));
+    const row = Math.max(1, Math.min(26, Math.floor(normalizedY * 26) + 1));
+    return `${column}${row}`;
+  }
   if (Math.abs(x) <= 1 && Math.abs(y) <= 1) {
     const column = String.fromCharCode(65 + Math.max(0, Math.min(25, Math.floor((x + 0.5) * 26))));
     const row = Math.max(1, Math.min(26, Math.floor((y + 0.5) * 26) + 1));
-    return `${column}${row}`;
-  }
-  const size = Number(mapSize);
-  if (Number.isFinite(size) && size > 100) {
-    const column = String.fromCharCode(65 + Math.max(0, Math.min(25, Math.floor(((x + size / 2) / size) * 26))));
-    const row = Math.max(1, Math.min(26, Math.floor(((y + size / 2) / size) * 26) + 1));
     return `${column}${row}`;
   }
   return `${Math.round(x)}, ${Math.round(y)}`;

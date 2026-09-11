@@ -86,7 +86,7 @@ export class AccountManager extends EventEmitter {
     });
     current.monitor = monitor;
     this.accounts.set(String(userId), current);
-    for (const event of ["connected", "disconnected", "error", "pollError", "chat", "team", "time", "markers", "info", "entityChanged", "outgoingChat"]) {
+    for (const event of ["connected", "disconnected", "error", "pollError", "chat", "team", "time", "markers", "info", "map", "entityChanged", "outgoingChat"]) {
       monitor.on(event, (...args) => this.emit(event, { userId, monitor, profile, args }));
     }
     await monitor.connect();

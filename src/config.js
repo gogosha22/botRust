@@ -19,6 +19,7 @@ export function loadConfig(env = process.env) {
     botToken: env.BOT_TOKEN?.trim(),
     pollIntervalMs: Math.max(1000, Number(env.POLL_INTERVAL_MS || 3000)),
     mapPollIntervalMs: Math.max(250, Number(env.MAP_POLL_INTERVAL_MS || 1000)),
+    mapImagePollIntervalMs: Math.max(30000, Number(env.MAP_IMAGE_POLL_INTERVAL_MS || 300000)),
     webAppPort: Math.max(1, Number(env.WEB_APP_PORT || env.PORT || 8787)),
     webAppUrl: env.WEB_APP_URL?.trim() || (replitDomain ? `https://${replitDomain}/mini-app` : ""),
     timezone: env.TIMEZONE || "Europe/Moscow",
