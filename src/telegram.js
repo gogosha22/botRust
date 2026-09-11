@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { RT_CATALOG, RT_CATEGORIES, findMonument, formatMonument } from "./rt-catalog.js";
+import { WEB_APP_VERSION } from "./web-app.js";
 
 const HOME_TEXT = "Rust Monitor — управление подключённым Rust+ сервером.";
 const notificationKeys = [
@@ -21,7 +22,11 @@ function mainKeyboard(config) {
     .text("⚙ Настройки").text("🗺 РТ")
     .resized()
     .persistent();
-  if (config.webAppUrl) keyboard.row().webApp("🗺 Открыть live-карту", config.webAppUrl);
+  if (config.webAppUrl) {
+    const separator = config.webAppUrl.includes("?") ? "&" : "?";
+    const versionedUrl = `${config.webAppUrl}${separator}v=${encodeURIComponent(WEB_APP_VERSION)}`;
+    keyboard.row().webApp("🗺 Открыть live-карту", versionedUrl);
+  }
   return keyboard;
 }
 

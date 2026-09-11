@@ -1,19 +1,21 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
+export const WEB_APP_VERSION = "2026.09.11.2";
+
 const HTML = `<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Rust Live Map</title>
+  <title>Rust Live Map · ${WEB_APP_VERSION}</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root { color-scheme: dark; --bg:#0e1117; --panel:#171c25; --line:#2b3442; --muted:#8f9bad; --green:#69d08a; --blue:#78a9ff; --orange:#ffb15e; }
     * { box-sizing:border-box; }
     body { margin:0; min-height:100vh; background:radial-gradient(circle at top,#1c2736 0,#0e1117 48%); color:#f4f7fb; font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; }
     header { position:sticky; top:0; z-index:4; padding:16px 16px 12px; background:rgba(14,17,23,.88); backdrop-filter:blur(16px); border-bottom:1px solid var(--line); }
-    h1 { margin:0 0 4px; font-size:21px; } .sub { color:var(--muted); font-size:12px; }
+     h1 { margin:0 0 4px; font-size:21px; } .version { color:var(--blue); font-size:10px; font-weight:500; letter-spacing:.04em; white-space:nowrap; } .sub { color:var(--muted); font-size:12px; }
     main { padding:12px; max-width:920px; margin:auto; display:grid; gap:12px; }
     .panel { background:rgba(23,28,37,.92); border:1px solid var(--line); border-radius:16px; padding:12px; box-shadow:0 10px 30px #0003; }
     .map { position:relative; aspect-ratio:1/1; overflow:hidden; border-radius:12px; background-color:#243c3d; background-image:linear-gradient(#ffffff12 1px,transparent 1px),linear-gradient(90deg,#ffffff12 1px,transparent 1px),radial-gradient(circle at 35% 30%,#316052,transparent 25%),radial-gradient(circle at 72% 70%,#5a4d32,transparent 28%); background-size:3.846% 3.846%; }
@@ -31,7 +33,7 @@ const HTML = `<!doctype html>
   </style>
 </head>
 <body>
-  <header><h1>🗺 Rust Live Map</h1><div class="sub" id="server">Подключение к Rust+…</div></header>
+  <header><h1>🗺 Rust Live Map <span class="version">${WEB_APP_VERSION}</span></h1><div class="sub" id="server">Подключение к Rust+…</div><div class="sub" id="diagnostics"></div></header>
   <main>
     <section class="panel"><div class="map" id="map"><div class="axis top" id="letters"></div><div class="axis left" id="numbers"></div></div><div class="legend"><span>тимейты</span><span class="shop">магазины</span><span class="event">события</span></div></section>
     <section class="panel"><div class="row"><div class="title">Тимейты</div><div class="muted" id="updated">—</div></div><div class="list" id="team"></div><div class="title" style="margin-top:16px">Магазины и события</div><div class="list" id="events"></div></section>
@@ -72,18 +74,30 @@ const HTML = `<!doctype html>
       $("events").innerHTML = (data.markers || []).filter((m) => m.shop || m.special).slice(0,20).map((m) => '<div class="item"><b>'+esc(m.name || m.special || "Событие")+'</b><br><span class="muted">'+esc(m.grid || "квадрат неизвестен")+(m.loot ? " · "+esc(m.loot) : "")+'</span></div>').join("") || '<div class="muted">Новых магазинов и событий нет.</div>';
       refreshMap(data);
     }
-    async function poll() {
+     function showDiagnostics(message) {
+       $("diagnostics").textContent = message;
+     }
+     async function poll() {
       try {
         const response = await fetch("/api/state", { headers: { "X-Telegram-Init-Data": initData } });
-        const data = await response.json(); if (!response.ok) throw new Error(data.error || "API error"); render(data);
-      } catch (error) { $("server").textContent = "Ошибка подключения: " + error.message; }
+         const data = await response.json();
+         if (!response.ok) {
+           const reason = response.status === 401
+             ? (initData ? "Telegram initData передан, но подпись отклонена сервером." : "Telegram initData не передан. Открой через кнопку бота.")
+             : (data.error || "API error");
+           showDiagnostics("Диагностика: HTTP " + response.status + " · " + reason);
+           throw new Error(data.error || "API error");
+         }
+         showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена"));
+         render(data);
+       } catch (error) { $("server").textContent = "Ошибка подключения: " + error.message; }
     }
     poll(); setInterval(poll, 1000);
   </script>
 </body>
 </html>`;
 
-function validateInitData(initData, botToken) {
+export function validateInitData(initData, botToken) {
   if (!initData || !botToken) return null;
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
@@ -93,7 +107,10 @@ function validateInitData(initData, botToken) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
-  const secret = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  // Telegram Web Apps: secret_key = HMAC-SHA256(key=bot_token, data="WebAppData").
+  // The previous version swapped the key and message, so every valid initData
+  // signature was rejected and the Mini App could never load the user's state.
+  const secret = crypto.createHmac("sha256", botToken).update("WebAppData").digest();
   const expected = crypto.createHmac("sha256", secret).update(dataCheckString).digest("hex");
   if (hash.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expected))) return null;
   const authDate = Number(params.get("auth_date"));
@@ -163,7 +180,12 @@ export function createWebAppServer(config, store, manager) {
   const server = http.createServer((request, response) => {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
     if (url.pathname === "/" || url.pathname === "/mini-app") {
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store, no-cache, must-revalidate",
+        "pragma": "no-cache",
+        "x-mini-app-version": WEB_APP_VERSION
+      });
       response.end(HTML);
       return;
     }
@@ -178,7 +200,11 @@ export function createWebAppServer(config, store, manager) {
     const telegramUser = validateInitData(request.headers["x-telegram-init-data"], config.botToken);
     const userId = telegramUser?.id || (config.simulationMode ? url.searchParams.get("userId") : null);
     if (!userId) {
-      response.writeHead(401, { "content-type": "application/json" });
+      response.writeHead(401, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        "x-mini-app-version": WEB_APP_VERSION
+      });
       response.end(JSON.stringify({ error: "Открой мини-приложение из Telegram." }));
       return;
     }
@@ -187,7 +213,11 @@ export function createWebAppServer(config, store, manager) {
     const info = profile.get("serverInfo") || {};
     const team = (profile.get("liveTeam") || []).map((member) => teamForWeb(member, info.mapSize, account.steamId));
     const markers = (profile.get("liveMarkers") || []).map(markerForWeb);
-    response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    response.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-mini-app-version": WEB_APP_VERSION
+    });
     response.end(JSON.stringify({
       ok: true,
       updatedAt: profile.get("liveUpdatedAt"),
