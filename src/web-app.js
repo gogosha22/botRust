@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
-export const WEB_APP_VERSION = "2026.09.11.4";
+export const WEB_APP_VERSION = "2026.09.11.5";
 const LINK_TTL_MS = 10 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -92,7 +92,8 @@ const HTML = `<!doctype html>
     }
     function render(data) {
       const server = data.server || {};
-      $("server").textContent = (server.name || "Rust server") + " · " + (server.players !== undefined ? server.players + (server.maxPlayers ? "/"+server.maxPlayers : "") : "онлайн неизвестен") + (server.map ? " · "+server.map : "");
+       const connection = data.connection || {};
+       $("server").textContent = (server.name || (connection.hasAccount ? "Rust server" : "Rust+ не привязан")) + " · " + (server.players !== undefined ? server.players + (server.maxPlayers ? "/"+server.maxPlayers : "") : "онлайн неизвестен") + (server.map ? " · "+server.map : "");
       $("updated").textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : "—";
       $("team").innerHTML = (data.team || []).length ? data.team.map((m) => '<div class="item"><span class="dot '+(m.online ? "" : "off")+'"></span><b>'+esc(m.name || "unknown")+'</b><span class="muted"> — '+(m.online ? "онлайн" : "вышел")+', '+(m.alive === false ? "мертв" : "жив")+(m.grid ? " · "+esc(m.grid) : "")+'</span></div>').join("") : '<div class="muted">Данные о тимейтах ещё не пришли.</div>';
       $("events").innerHTML = (data.markers || []).filter((m) => m.shop || m.special).slice(0,20).map((m) => '<div class="item"><b>'+esc(m.name || m.special || "Событие")+'</b><br><span class="muted">'+esc(m.grid || "квадрат неизвестен")+(m.loot ? " · "+esc(m.loot) : "")+'</span></div>').join("") || '<div class="muted">Новых магазинов и событий нет.</div>';
@@ -168,7 +169,7 @@ const HTML = `<!doctype html>
            showDiagnostics("Диагностика: HTTP " + response.status + " · initData: " + telegramInitData.source + " · " + reason);
            throw new Error(data.error || "API error");
          }
-         showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена") + " · initData: " + telegramInitData.source);
+         showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена") + " · " + (data.connection?.status || "Статус Rust+ неизвестен") + " · initData: " + telegramInitData.source);
          render(data);
        } catch (error) { $("server").textContent = "Ошибка подключения: " + error.message; }
     }
@@ -374,6 +375,7 @@ export function createWebAppServer(config, store, manager) {
     }
     const profile = store.profile(userId);
     const account = store.getAccount(userId) || {};
+    const monitor = typeof manager?.getMonitor === "function" ? manager.getMonitor(userId) : null;
     const info = profile.get("serverInfo") || {};
     const team = (profile.get("liveTeam") || []).map((member) => teamForWeb(member, info.mapSize, account.steamId));
     const markers = (profile.get("liveMarkers") || []).map(markerForWeb);
@@ -386,6 +388,13 @@ export function createWebAppServer(config, store, manager) {
       ok: true,
       updatedAt: profile.get("liveUpdatedAt"),
       server: { ...info, server: account.server, port: account.port },
+      connection: {
+        hasAccount: Object.keys(account).length > 0,
+        connected: Boolean(monitor?.connected),
+        status: typeof manager?.status === "function"
+          ? manager.status(userId)
+          : (Object.keys(account).length ? "Rust+ аккаунт привязан." : "Rust+ аккаунт не привязан.")
+      },
       team,
       markers
     }));

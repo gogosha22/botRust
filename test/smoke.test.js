@@ -94,7 +94,7 @@ test("Telegram Mini App initData uses the Telegram Web Apps HMAC order", () => {
 });
 
 test("Mini App exposes a visible release version", () => {
-  assert.equal(WEB_APP_VERSION, "2026.09.11.4");
+  assert.equal(WEB_APP_VERSION, "2026.09.11.5");
 });
 
 test("Mini App can be linked through a one-time bot code", async () => {
