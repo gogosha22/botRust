@@ -167,6 +167,7 @@ export function createTelegramBot(config, store, manager, handlers) {
     "4. В игре нажми Pair with Server — бот сам получит сервер и player token.",
     "",
     "Внизу есть клавиатура: Обновить, Сервер, Тимейты, Чат, Время, Настройки и РТ.",
+    "Если Mini App попросит код регистрации, отправь боту команду `/link КОД`.",
     "В team chat работают команды с выбранным префиксом:",
     "<префикс>help, time, team, markers, server, rt, loot, raidtest, дерево хп 120."
   ].join("\n"), { reply_markup: mainKeyboard(config) }));
@@ -179,6 +180,21 @@ export function createTelegramBot(config, store, manager, handlers) {
   bot.hears("⚙ Настройки", showSettings);
   bot.hears("🗺 РТ", showRt);
   bot.hears("⬅️ Назад к серверу", renderHome);
+
+  bot.command("link", async (ctx) => {
+    const code = String(ctx.match || "").trim();
+    if (!code) {
+      await ctx.reply("Открой live-карту, скопируй одноразовый код и отправь его так: `/link КОД`.");
+      return;
+    }
+    if (!handlers.linkMiniApp(userId(ctx), code)) {
+      await ctx.reply("❌ Код регистрации не найден или уже истёк. Открой live-карту заново и получи новый код.");
+      return;
+    }
+    await ctx.reply("✅ Mini App зарегистрировано. Вернись в окно live-карты — карта загрузится автоматически.", {
+      reply_markup: mainKeyboard(config)
+    });
+  });
 
   bot.command("credentials", async (ctx) => {
     const text = ctx.message?.text?.trim() || "";

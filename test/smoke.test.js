@@ -5,7 +5,7 @@ import { findMonument, formatMonument, RT_CATALOG, markerSquare } from "../src/r
 import { markerKey, normalizeChat, normalizeMarkers, normalizeServerInfo, normalizeTime, normalizeTeam } from "../src/rust-client.js";
 import { findPairing, parseCredentialInfo } from "../src/credentials.js";
 import { decayEstimate, findDecayMaterial, formatDuration, parseDecayCommand } from "../src/decay.js";
-import { validateInitData, WEB_APP_VERSION } from "../src/web-app.js";
+import { createWebAppServer, validateInitData, WEB_APP_VERSION } from "../src/web-app.js";
 
 test("catalog finds Russian and English aliases", () => {
   assert.equal(findMonument("нефтевышка").slug, "oil-rig");
@@ -94,5 +94,37 @@ test("Telegram Mini App initData uses the Telegram Web Apps HMAC order", () => {
 });
 
 test("Mini App exposes a visible release version", () => {
-  assert.equal(WEB_APP_VERSION, "2026.09.11.3");
+  assert.equal(WEB_APP_VERSION, "2026.09.11.4");
+});
+
+test("Mini App can be linked through a one-time bot code", async () => {
+  const profile = {
+    get(key) {
+      return {
+        serverInfo: { name: "Test Rust", mapSize: 4500 },
+        liveTeam: [],
+        liveMarkers: [],
+        liveUpdatedAt: Date.now()
+      }[key];
+    }
+  };
+  const store = { profile: () => profile, getAccount: () => ({}) };
+  const server = createWebAppServer({ botToken: "test-token", simulationMode: false }, store, {});
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const start = await fetch(`${base}/api/link/start`);
+  assert.equal(start.status, 200);
+  const link = await start.json();
+  assert.match(link.code, /^[A-F0-9]{10}$/);
+  assert.equal((await (await fetch(`${base}/api/link/status?code=${link.code}&deviceToken=${encodeURIComponent(link.deviceToken)}`)).json()).status, "waiting");
+
+  assert.equal(server.linkMiniAppCode(link.code, 424242), true);
+  const linked = await (await fetch(`${base}/api/link/status?code=${link.code}&deviceToken=${encodeURIComponent(link.deviceToken)}`)).json();
+  assert.equal(linked.status, "linked");
+  const state = await fetch(`${base}/api/state`, { headers: { "X-Mini-App-Session": linked.sessionToken } });
+  assert.equal(state.status, 200);
+  assert.equal((await state.json()).ok, true);
+  assert.equal(server.linkMiniAppCode(link.code, 424242), false);
+  server.close();
 });

@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
-export const WEB_APP_VERSION = "2026.09.11.3";
+export const WEB_APP_VERSION = "2026.09.11.4";
+const LINK_TTL_MS = 10 * 60 * 1000;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const HTML = `<!doctype html>
 <html lang="ru">
@@ -28,13 +30,15 @@ const HTML = `<!doctype html>
     .row { display:flex; align-items:center; justify-content:space-between; gap:8px; } .title { font-weight:700; font-size:15px; } .muted { color:var(--muted); }
     .list { display:grid; gap:7px; margin-top:9px; } .item { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:#ffffff05; }
     .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green); margin-right:6px; } .off { background:#657080; }
-    #toast { position:fixed; left:12px; right:12px; bottom:14px; z-index:10; padding:10px 12px; background:#182331f2; border:1px solid var(--line); border-radius:10px; display:none; }
+     #toast { position:fixed; left:12px; right:12px; bottom:14px; z-index:10; padding:10px 12px; background:#182331f2; border:1px solid var(--line); border-radius:10px; display:none; }
+     .register { border-color:#527dbb; } .register h2 { margin:0 0 6px; font-size:16px; } .register p { margin:6px 0; color:var(--muted); } .register code { display:block; margin:12px 0; padding:12px; border-radius:10px; background:#0c1118; color:#fff; text-align:center; font:bold 24px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em; user-select:all; } .register small { color:var(--muted); }
     @media (min-width:760px) { main { grid-template-columns:1.25fr .75fr; align-items:start; } header { padding-left:max(16px,calc((100% - 920px)/2)); } }
   </style>
 </head>
 <body>
   <header><h1>🗺 Rust Live Map <span class="version">${WEB_APP_VERSION}</span></h1><div class="sub" id="server">Подключение к Rust+…</div><div class="sub" id="diagnostics"></div></header>
-  <main>
+   <main>
+    <section class="panel register" id="registration" hidden><h2>🔐 Одноразовая регистрация</h2><p>Telegram не передал приложению служебный идентификатор. Это можно безопасно исправить через бота.</p><p>Скопируй код и отправь боту отдельным сообщением:</p><code id="link-code">получаю код…</code><p>Команда: <b>/link КОД</b></p><small id="link-status">Ожидаю подтверждение от бота…</small></section>
     <section class="panel"><div class="map" id="map"><div class="axis top" id="letters"></div><div class="axis left" id="numbers"></div></div><div class="legend"><span>тимейты</span><span class="shop">магазины</span><span class="event">события</span></div></section>
     <section class="panel"><div class="row"><div class="title">Тимейты</div><div class="muted" id="updated">—</div></div><div class="list" id="team"></div><div class="title" style="margin-top:16px">Магазины и события</div><div class="list" id="events"></div></section>
   </main>
@@ -52,8 +56,17 @@ const HTML = `<!doctype html>
        }
        return { value: "", source: "не найден" };
      }
-     const telegramInitData = readTelegramInitData();
-     const initData = telegramInitData.value;
+      const telegramInitData = readTelegramInitData();
+      const initData = telegramInitData.value;
+      const storageKey = "rust-live-map-session";
+      const storage = {
+        get(key) { try { return window.localStorage.getItem(key) || ""; } catch { return ""; } },
+        set(key, value) { try { window.localStorage.setItem(key, value); } catch {} },
+        remove(key) { try { window.localStorage.removeItem(key); } catch {} }
+      };
+      let sessionToken = storage.get(storageKey);
+      let linkInfo = null;
+      let linkPollTimer = null;
     const $ = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[char]));
     const axisLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -88,11 +101,67 @@ const HTML = `<!doctype html>
      function showDiagnostics(message) {
        $("diagnostics").textContent = message;
      }
+     function showRegistration(show) {
+       $("registration").hidden = !show;
+     }
+     async function startRegistration() {
+       if (linkInfo) return;
+       try {
+         const response = await fetch("/api/link/start", { cache: "no-store" });
+         const data = await response.json();
+         if (!response.ok) throw new Error(data.error || "Не удалось получить код");
+         linkInfo = data;
+         $("link-code").textContent = data.code;
+         $("link-status").textContent = "Отправь код боту. Эта страница сама проверит привязку.";
+         showRegistration(true);
+         linkPollTimer = setInterval(checkRegistration, 2000);
+       } catch (error) {
+         showRegistration(true);
+         $("link-status").textContent = "Ошибка получения кода: " + error.message;
+       }
+     }
+     async function checkRegistration() {
+       if (!linkInfo) return;
+       try {
+         const query = new URLSearchParams({ code: linkInfo.code, deviceToken: linkInfo.deviceToken });
+         const response = await fetch("/api/link/status?" + query, { cache: "no-store" });
+         const data = await response.json();
+         if (!response.ok) throw new Error(data.error || "Код истёк");
+         if (data.status === "linked" && data.sessionToken) {
+           sessionToken = data.sessionToken;
+           storage.set(storageKey, sessionToken);
+           clearInterval(linkPollTimer);
+           linkPollTimer = null;
+           showRegistration(false);
+           showDiagnostics("Версия сервера: " + (response.headers.get("X-Mini-App-Version") || "не определена") + " · регистрация через бота подтверждена");
+           poll();
+         } else {
+           $("link-status").textContent = "Код активен. Отправь боту /link " + linkInfo.code;
+         }
+       } catch (error) {
+         $("link-status").textContent = error.message;
+       }
+     }
      async function poll() {
       try {
-        const response = await fetch("/api/state", { headers: { "X-Telegram-Init-Data": initData } });
+         if (!initData && !sessionToken) {
+           showDiagnostics("Telegram initData не передан · запусти регистрацию через бота");
+           await startRegistration();
+           return;
+         }
+         const headers = {};
+         if (initData) headers["X-Telegram-Init-Data"] = initData;
+         if (sessionToken) headers["X-Mini-App-Session"] = sessionToken;
+         const response = await fetch("/api/state", { headers, cache: "no-store" });
          const data = await response.json();
          if (!response.ok) {
+           if (response.status === 401 && !initData && sessionToken) {
+             sessionToken = "";
+             storage.remove(storageKey);
+             showRegistration(true);
+             await startRegistration();
+             return;
+           }
            const reason = response.status === 401
              ? (initData ? "Telegram initData передан, но подпись отклонена сервером." : "Telegram initData не передан. Открой через кнопку бота.")
              : (data.error || "API error");
@@ -103,7 +172,7 @@ const HTML = `<!doctype html>
          render(data);
        } catch (error) { $("server").textContent = "Ошибка подключения: " + error.message; }
     }
-    poll(); setInterval(poll, 1000);
+     poll(); setInterval(poll, 1000);
   </script>
 </body>
 </html>`;
@@ -131,6 +200,14 @@ export function validateInitData(initData, botToken) {
   } catch {
     return null;
   }
+}
+
+function randomToken(bytes = 32) {
+  return crypto.randomBytes(bytes).toString("base64url");
+}
+
+function normalizeLinkCode(value) {
+  return String(value || "").replace(/\s+/g, "").toUpperCase();
 }
 
 function coordinate(value, fallback) {
@@ -188,7 +265,44 @@ function teamForWeb(member, mapSize, ownSteamId) {
 }
 
 export function createWebAppServer(config, store, manager) {
+  const pendingLinks = new Map();
+  const sessions = new Map();
+
+  const cleanupLinks = () => {
+    const now = Date.now();
+    for (const [code, link] of pendingLinks) {
+      if (link.expiresAt <= now) pendingLinks.delete(code);
+    }
+    for (const [token, session] of sessions) {
+      if (session.expiresAt <= now) sessions.delete(token);
+    }
+  };
+
+  const createLink = () => {
+    cleanupLinks();
+    let code = "";
+    do {
+      code = crypto.randomBytes(5).toString("hex").toUpperCase();
+    } while (pendingLinks.has(code));
+    const deviceToken = randomToken();
+    const expiresAt = Date.now() + LINK_TTL_MS;
+    pendingLinks.set(code, { code, deviceToken, expiresAt, userId: null, sessionToken: null });
+    return { code, deviceToken, expiresAt };
+  };
+
+  const linkMiniAppCode = (code, userId) => {
+    cleanupLinks();
+    const link = pendingLinks.get(normalizeLinkCode(code));
+    if (!link || link.expiresAt <= Date.now()) return false;
+    const sessionToken = randomToken();
+    link.userId = String(userId);
+    link.sessionToken = sessionToken;
+    sessions.set(sessionToken, { userId: String(userId), expiresAt: Date.now() + SESSION_TTL_MS });
+    return true;
+  };
+
   const server = http.createServer((request, response) => {
+    cleanupLinks();
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
     if (url.pathname === "/" || url.pathname === "/mini-app") {
       response.writeHead(200, {
@@ -205,11 +319,50 @@ export function createWebAppServer(config, store, manager) {
       response.end(JSON.stringify({ ok: true }));
       return;
     }
+    if (url.pathname === "/api/link/start") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "x-mini-app-version": WEB_APP_VERSION
+      });
+      response.end(JSON.stringify({ ok: true, ...createLink(), version: WEB_APP_VERSION }));
+      return;
+    }
+    if (url.pathname === "/api/link/status") {
+      const code = normalizeLinkCode(url.searchParams.get("code"));
+      const deviceToken = url.searchParams.get("deviceToken") || "";
+      const link = pendingLinks.get(code);
+      const headers = {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "x-mini-app-version": WEB_APP_VERSION
+      };
+      if (!link || link.deviceToken !== deviceToken || link.expiresAt <= Date.now()) {
+        response.writeHead(404, headers);
+        response.end(JSON.stringify({ error: "Код регистрации недействителен или истёк." }));
+        return;
+      }
+      if (!link.userId || !link.sessionToken) {
+        response.writeHead(200, headers);
+        response.end(JSON.stringify({ ok: true, status: "waiting", expiresAt: link.expiresAt }));
+        return;
+      }
+      response.writeHead(200, headers);
+      response.end(JSON.stringify({
+        ok: true,
+        status: "linked",
+        sessionToken: link.sessionToken,
+        expiresAt: sessions.get(link.sessionToken)?.expiresAt || Date.now() + SESSION_TTL_MS
+      }));
+      pendingLinks.delete(code);
+      return;
+    }
     if (url.pathname !== "/api/state") {
       response.writeHead(404); response.end("Not found"); return;
     }
     const telegramUser = validateInitData(request.headers["x-telegram-init-data"], config.botToken);
-    const userId = telegramUser?.id || (config.simulationMode ? url.searchParams.get("userId") : null);
+    const session = sessions.get(String(request.headers["x-mini-app-session"] || ""));
+    const userId = telegramUser?.id ?? session?.userId ?? (config.simulationMode ? url.searchParams.get("userId") : null);
     if (!userId) {
       response.writeHead(401, {
         "content-type": "application/json",
@@ -237,5 +390,6 @@ export function createWebAppServer(config, store, manager) {
       markers
     }));
   });
+  server.linkMiniAppCode = linkMiniAppCode;
   return server;
 }

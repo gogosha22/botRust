@@ -478,6 +478,7 @@ const rtLootText = (profile, item) => [
 
 const handlers = {
   registerCredentials: (userId, text) => manager.registerCredentials(userId, text),
+  linkMiniApp: (userId, code) => webAppServer.linkMiniAppCode(code, userId),
   forget: (userId) => {
     acknowledgeRaid(userId);
     return manager.forget(userId);
